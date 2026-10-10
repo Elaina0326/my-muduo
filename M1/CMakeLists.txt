@@ -48,23 +48,27 @@ endfunction()
 
 # ★ 写过的源文件，每加一个 .cc 就在这里加一行
 set(MUDUO_SRCS
-    muduo/base/Timestamp.cc          
+    muduo/base/Timestamp.cc
+    muduo/base/CurrentThread.cc
 )
 
 
 # 想临时手动验证某个模块时，在这里临时加一个 add_executable，
 
 find_package(GTest REQUIRED)
+find_package(Threads REQUIRED)      # std::thread 需要（测试里开线程）
 enable_testing()
 
 add_executable(unit_tests
     tests/test_timestamp.cc
+    tests/test_atomic.cc
+    tests/test_currentthread.cc
     # 每写一个测试文件就在这里加一行：
     ${MUDUO_SRCS}
 )
 target_include_directories(unit_tests PRIVATE .)
 target_compile_options(unit_tests PRIVATE -Wall -Wextra)
-target_link_libraries(unit_tests PRIVATE GTest::gtest GTest::gtest_main)
+target_link_libraries(unit_tests PRIVATE GTest::gtest GTest::gtest_main Threads::Threads)
 apply_sanitizers(unit_tests)
 
 include(GoogleTest)
