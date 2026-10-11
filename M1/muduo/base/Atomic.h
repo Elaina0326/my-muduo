@@ -1,4 +1,4 @@
-#pragma once;
+#pragma once
 
 #include<cstdint>
 #include "noncopyable.h"
@@ -21,10 +21,10 @@ public:
         return getAndAdd(x) + x;
     }
     T incrementAndGet(){
-        return getAndAdd(1);
+        return addAndGet(1);
     }
     T decrementAndGet (){
-        return getAndAdd(-1);
+        return addAndGet(-1);
     }
     T getAndSet(T newValue){
         return __atomic_exchange_n(&value_, newValue, __ATOMIC_SEQ_CST);

@@ -63,6 +63,10 @@ add_executable(unit_tests
     tests/test_timestamp.cc
     tests/test_atomic.cc
     tests/test_currentthread.cc
+    tests/test_mutex.cc
+    tests/test_condition.cc
+    tests/test_countdownlatch.cc
+    tests/test_producer_consumer.cc
     # 每写一个测试文件就在这里加一行：
     ${MUDUO_SRCS}
 )
