@@ -50,6 +50,9 @@ endfunction()
 set(MUDUO_SRCS
     muduo/base/Timestamp.cc
     muduo/base/CurrentThread.cc
+    muduo/base/Thread.cc
+    # ThreadPool.cc 还没写完（现在是断的），补完再取消注释：
+    # muduo/base/ThreadPool.cc
 )
 
 
@@ -67,6 +70,7 @@ add_executable(unit_tests
     tests/test_condition.cc
     tests/test_countdownlatch.cc
     tests/test_producer_consumer.cc
+    tests/test_thread.cc
     # 每写一个测试文件就在这里加一行：
     ${MUDUO_SRCS}
 )
