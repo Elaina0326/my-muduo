@@ -15,7 +15,7 @@ namespace muduo{
         public:
             using queue_type = std::deque<T>;
 
-            BlockingQueue():mutex_(),notEmpty(mutex_){}  ;
+            BlockingQueue():mutex_(),notEmpty_(mutex_){}  ;
             void put(const T& x){
                 MutexLockGuard lock(mutex_);
                 queue_.push_back(x);
@@ -28,16 +28,24 @@ namespace muduo{
                 notEmpty_.notify();
             }
 
-            T take(){
+            bool take(T* out){
                 MutexLockGuard lock(mutex_);
-                while(queue_.empty()){
+                while(queue_.empty()&&!closed_){
                     notEmpty_.wait();
                 }
-                T front(std::move(queue_.front()));
+                if(queue_.empty()){
+                    return false;
+                }
+                *out = std::move(queue_.front());
                 queue_.pop_front();
-                return front;
+                return true;
             }
 
+            void close(){
+                MutexLockGuard lock(mutex_);
+                closed_ = true;
+                notEmpty_.notifyAll();
+            }
             queue_type drain(){
                 queue_type queue;
                 {
@@ -54,6 +62,7 @@ namespace muduo{
 
         private:
             mutable MutexLock mutex_;
+            bool closed_ = false;
             Condition notEmpty_;
             queue_type queue_;
     };

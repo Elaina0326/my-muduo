@@ -85,7 +85,7 @@ namespace muduo{
         Task task;
         while(take(&task)){
             task();
-            task = Task();
+            task = Task(); // 尽早释放
         }
     }
 }
