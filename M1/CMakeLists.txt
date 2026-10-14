@@ -53,6 +53,8 @@ set(MUDUO_SRCS
     muduo/base/Thread.cc
     muduo/base/ThreadPool.cc
     muduo/base/Logging.cc
+    muduo/net/Channel.cc
+    muduo/net/Timer.cc
 )
 
 
