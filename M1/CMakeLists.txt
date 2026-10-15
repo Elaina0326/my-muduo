@@ -55,6 +55,9 @@ set(MUDUO_SRCS
     muduo/base/Logging.cc
     muduo/net/Channel.cc
     muduo/net/Timer.cc
+    muduo/net/Poller.cc
+    muduo/net/EpollPoller.cc
+    muduo/net/TimerQueue.cc
 )
 
 

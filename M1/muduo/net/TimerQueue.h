@@ -12,10 +12,17 @@
 
 namespace muduo{
     namespace net{
-        class Eventloop;
+        class EventLoop;
 
         class TimerQueue:noncopyable{
             public:
+                explicit TimerQueue(EventLoop *loop);
+                ~TimerQueue();
+
+                TimerId addTimer(TimerCallback cb, Timestamp when, double interval);
+
+                void cancel(TimerId timetid);
+
             private:
                 using Entry = std::pair<Timestamp, Timer *>;
                 using TimerList = std::set<Entry>;
@@ -29,6 +36,19 @@ namespace muduo{
                 void handleRead();
 
                 std::vector<Entry> getExpired(Timestamp now);
+                void reset(const std::vector<Entry> &expired, Timestamp now);
+
+                bool insert(Timer *timer);
+
+                EventLoop *loop_;
+                const int timerfd_;
+                Channel timerfdChannel_;
+                TimerList timers_;
+
+                ActiveTimerSet activeTimers_;
+
+                bool callingExpiredTimers_ = false;
+                ActiveTimerSet cancelingTimers_;
         };
-    }
+        }
 }
