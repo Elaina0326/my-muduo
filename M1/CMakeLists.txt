@@ -58,6 +58,7 @@ set(MUDUO_SRCS
     muduo/net/Poller.cc
     muduo/net/EpollPoller.cc
     muduo/net/TimerQueue.cc
+    muduo/net/EventLoop.cc
 )
 
 
@@ -79,6 +80,7 @@ add_executable(unit_tests
     tests/test_blockingqueue.cc
     tests/test_threadpool.cc
     tests/test_logging.cc
+    tests/test_eventloop.cc 
     # 每写一个测试文件就在这里加一行：
     ${MUDUO_SRCS}
 )
