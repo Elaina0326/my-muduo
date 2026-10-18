@@ -25,6 +25,7 @@ namespace muduo{
             ::close(epollfd_);
         }
         Timestamp EpollPoller::poll(int timeoutMs,ChannelList* activeChannels){
+            assertInLoopThread();
             int numEvents = ::epoll_wait(epollfd_, events_.data(), static_cast<int>(events_.size()), timeoutMs);
             int savedErrno = errno;
             Timestamp now(Timestamp::now());
@@ -55,7 +56,9 @@ namespace muduo{
                 activeChannels->push_back(channel);
             }
         }
-        void EpollPoller::updateChannel(Channel*channel){
+        void EpollPoller::updateChannel(Channel*channel)
+        {
+            assertInLoopThread();
             const int idx = channel->index();
             int fd = channel->fd() ;
             if(idx==kNew||idx==kDeleted){
@@ -74,7 +77,9 @@ namespace muduo{
             }
         }
 
-        void EpollPoller::removeChannel(Channel* channel){
+        void EpollPoller::removeChannel(Channel* channel)
+        {
+            assertInLoopThread();
             int fd = channel->fd();
             channels_.erase(fd);
             int idx = channel->index();
