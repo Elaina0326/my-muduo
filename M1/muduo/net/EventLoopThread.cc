@@ -16,7 +16,7 @@ namespace muduo{
             EventLoop *loop = nullptr;
             {
                 MutexLockGuard lock(mutex_);
-                while(loop_=nullptr)
+                while(loop_==nullptr)
                 {
                     cond_.wait();
                 }
