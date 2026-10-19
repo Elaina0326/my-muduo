@@ -36,16 +36,16 @@ namespace muduo{
              }
              return n;
          }
+         // 只写、不消费：写出去多少由调用方自己 retrieve。
+         // 和上游 muduo 的语义保持一致。
+         // （如果这里顺手 retrieve，TcpConnection::handleWrite 里再
+         //   retrieve 一次就会重复消费 → 丢数据）
          ssize_t Buffer::writeFd(int fd, int *savedErrno)
          {
              ssize_t n = sockets::write(fd, peek(), readableBytes());
              if (n < 0)
              {
                  *savedErrno = errno;
-             }
-             else
-             {
-                 retrieve(static_cast<size_t>(n));
              }
              return n;
          }

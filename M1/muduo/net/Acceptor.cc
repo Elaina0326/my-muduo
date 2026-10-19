@@ -53,13 +53,21 @@ namespace muduo{
                     sockets::close(connfd);
                 }
             }else{
-                LOG_SYSERR << "in Acceptor::handleRead";
-                if(errno==EMFILE){
+                // EAGAIN / EINTR / ECONNABORTED 等都是可恢复的常态错误：
+                // LT 模式下没 accept 完的连接还在内核队列里，下次事件会再来，
+                // 不该打成 SYSERR 刷日志。
+                int savedErrno = errno;
+                if(savedErrno==EMFILE){
+                    // ★ fd 耗尽。不处理的话 listen fd 会一直可读 → busy loop。
                     LOG_ERROR << "fd 耗尽，拒绝新连接";
-                    ::close(idleFd_);
+                    ::close(idleFd_);                    // 腾出一个 fd
                     idleFd_ = ::accept(acceptSocket_.fd(), nullptr, nullptr);
-                    ::close(idleFd_);
+                    ::close(idleFd_);                    // 立刻关掉（对端收到 RST）
                     idleFd_ = ::open("/dev/null", O_RDONLY | O_CLOEXEC);
+                }else if(savedErrno!=EAGAIN && savedErrno!=EWOULDBLOCK &&
+                         savedErrno!=EINTR && savedErrno!=ECONNABORTED &&
+                         savedErrno!=EPROTO && savedErrno!=EPERM){
+                    LOG_SYSERR << "in Acceptor::handleRead";
                 }
             }
         }

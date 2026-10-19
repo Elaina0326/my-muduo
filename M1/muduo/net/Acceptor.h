@@ -23,6 +23,9 @@ namespace muduo{
             }
             bool listenning() const { return listenning_; }
 
+            // 给测试用：绑端口 0 时，通过它 + getsockname 拿实际端口
+            int listenFd() const { return acceptSocket_.fd(); }
+
             void listen();
 
         private:

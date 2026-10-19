@@ -90,6 +90,8 @@ add_executable(unit_tests
     tests/test_eventloop.cc
     tests/test_eventloopthread.cc
     tests/test_inetaddress.cc 
+    tests/test_buffer.cc
+    tests/test_acceptor.cc
     # 每写一个测试文件就在这里加一行：
     ${MUDUO_SRCS}
 )
@@ -100,3 +102,17 @@ apply_sanitizers(unit_tests)
 
 include(GoogleTest)
 gtest_discover_tests(unit_tests PROPERTIES TIMEOUT 60)
+
+# ---------------------------------------------------------------------------
+# Day 21：echo 服务器（联调用）
+#
+# 和 unit_tests 共用同一份 ${MUDUO_SRCS}，改库代码两个目标一起重编。
+# ---------------------------------------------------------------------------
+add_executable(echo_server
+    examples/echo_server.cc
+    ${MUDUO_SRCS}
+)
+target_include_directories(echo_server PRIVATE .)
+target_compile_options(echo_server PRIVATE -Wall -Wextra)
+target_link_libraries(echo_server PRIVATE Threads::Threads)
+apply_sanitizers(echo_server)
