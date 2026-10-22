@@ -4,9 +4,11 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cassert>
 #include <cerrno>
 #include <cstring>
+#include <limits.h>
 #include <utility>
 
 #include "Channel.h"
@@ -65,6 +67,10 @@ namespace muduo
             {
                 handleClose();
             }
+            else if (savedErrno == EAGAIN || savedErrno == EWOULDBLOCK ||
+                     savedErrno == EINTR)
+            {
+            }
             else
             {
                 errno = savedErrno;
@@ -79,7 +85,10 @@ namespace muduo
             if (sendFileActive_)
             {
                 continueSendFile();
-                return;
+                if (sendFileActive_ || !channel_->isWriting())
+                {
+                    return;
+                }
             }
 
             if (channel_->isWriting())
@@ -107,6 +116,10 @@ namespace muduo
                             shutdownInLoop();
                         }
                     }
+                }
+                else if (savedErrno == EAGAIN || savedErrno == EWOULDBLOCK ||
+                         savedErrno == EINTR)
+                {
                 }
                 else
                 {
@@ -232,21 +245,13 @@ namespace muduo
             assert(remaining <= len);
             if (!faultError && remaining > 0)
             {
-                size_t oldLen = outputBuffer_.readableBytes();
-
-                if (oldLen + remaining >= highWaterMark_ && oldLen < highWaterMark_ &&
-                    highWaterMarkCallback_)
-                {
-                    loop_->queueInLoop(std::bind(highWaterMarkCallback_,
-                                                 shared_from_this(),
-                                                 oldLen + remaining));
-                }
+                notifyHighWaterMark(remaining);
 
                 outputBuffer_.append(static_cast<const char *>(data) + nwrote, remaining);
 
                 if (!channel_->isWriting())
                 {
-                    channel_->enableWriting();
+                    channel_->enableWriting(); 
                 }
             }
         }
@@ -284,6 +289,13 @@ namespace muduo
 
             if (channel_->isWriting() || outputBuffer_.readableBytes() > 0)
             {
+                size_t added = 0;
+                for (const auto &p : parts)
+                {
+                    added += p.size();
+                }
+                notifyHighWaterMark(added);
+
                 for (const auto &p : parts)
                 {
                     outputBuffer_.append(p.data(), p.size());
@@ -316,58 +328,72 @@ namespace muduo
                 return;
             }
 
-            ssize_t nwrote = ::writev(channel_->fd(), vec.data(),
-                                      static_cast<int>(vec.size()));
+            size_t index = 0;
+            ssize_t nwrote = 0;
 
-            if (nwrote >= 0)
+            while (index < vec.size())
             {
-                if (static_cast<size_t>(nwrote) == total)
+                const size_t batch = std::min(
+                    vec.size() - index, static_cast<size_t>(IOV_MAX));
+                ssize_t n = ::writev(channel_->fd(), vec.data() + index,
+                                     static_cast<int>(batch));
+
+                if (n > 0)
                 {
-                    if (writeCompleteCallback_)
+                    nwrote += n;
+                    size_t left = static_cast<size_t>(n);
+                    while (index < vec.size() && left >= vec[index].iov_len)
                     {
-                        loop_->queueInLoop(std::bind(writeCompleteCallback_,
-                                                     shared_from_this()));
+                        left -= vec[index].iov_len;
+                        ++index;
                     }
-                    return;
+                    if (left > 0)
+                    {
+                        vec[index].iov_base =
+                            static_cast<char *>(vec[index].iov_base) + left;
+                        vec[index].iov_len -= left;
+                    }
+                    continue;
                 }
 
-                size_t skip = static_cast<size_t>(nwrote);
-                for (const auto &p : parts)
+                if (n < 0 && errno == EINTR)
                 {
-                    if (p.empty())
+                    continue;
+                }
+
+                int savedErrno = (n < 0) ? errno : 0;
+                if (n < 0 && savedErrno != EAGAIN && savedErrno != EWOULDBLOCK)
+                {
+                    LOG_SYSERR << "TcpConnection::sendMultiInLoop";
+                    if (savedErrno == EPIPE || savedErrno == ECONNRESET)
                     {
-                        continue;
-                    }
-                    if (skip >= p.size())
-                    {
-                        skip -= p.size();
-                    }
-                    else
-                    {
-                        outputBuffer_.append(p.data() + skip, p.size() - skip);
-                        skip = 0;
+                        return;
                     }
                 }
-            }
-            else if (errno == EAGAIN || errno == EWOULDBLOCK)
-            {
-                for (const auto &p : parts)
+
+                size_t added = 0;
+                for (size_t i = index; i < vec.size(); ++i)
                 {
-                    outputBuffer_.append(p.data(), p.size());
+                    added += vec[i].iov_len;
                 }
+                notifyHighWaterMark(added);
+
+                for (size_t i = index; i < vec.size(); ++i)
+                {
+                    outputBuffer_.append(static_cast<const char *>(vec[i].iov_base),
+                                         vec[i].iov_len);
+                }
+                break;
             }
-            else if (errno == EINTR)
+
+            if (static_cast<size_t>(nwrote) == total)
             {
-                sendMultiInLoop(parts);
+                if (writeCompleteCallback_)
+                {
+                    loop_->queueInLoop(std::bind(writeCompleteCallback_,
+                                                 shared_from_this()));
+                }
                 return;
-            }
-            else
-            {
-                LOG_SYSERR << "TcpConnection::sendMultiInLoop";
-                if (errno == EPIPE || errno == ECONNRESET)
-                {
-                    return;
-                }
             }
 
             if (!channel_->isWriting())
@@ -375,20 +401,30 @@ namespace muduo
                 channel_->enableWriting();
             }
         }
-        void TcpConnection::sendFile(int filefd, off_t offset, size_t count,
-                                     std::shared_ptr<void> guard)
+        void TcpConnection::notifyHighWaterMark(size_t added)
         {
-            if (filefd < 0 || count == 0)
+            if (!highWaterMarkCallback_)
             {
                 return;
             }
 
+            const size_t oldLen = outputBuffer_.readableBytes();
+            if (oldLen < highWaterMark_ && oldLen + added >= highWaterMark_)
+            {
+                loop_->queueInLoop(std::bind(highWaterMarkCallback_,
+                                             shared_from_this(), oldLen + added));
+            }
+        }
+        void TcpConnection::sendFile(int filefd, off_t offset, size_t count,
+                                     std::shared_ptr<void> guard)
+        {
+            if (filefd < 0 || count == 0)
+                return;
+
             if (loop_->isInLoopThread())
             {
                 if (state_ == kConnected)
-                {
                     sendFileInLoop(filefd, offset, count, std::move(guard));
-                }
                 return;
             }
 
@@ -399,6 +435,7 @@ namespace muduo
             self->sendFileInLoop(filefd, offset, count, std::move(guard));
         } });
         }
+
         void TcpConnection::sendFileInLoop(int filefd, off_t offset, size_t count,
                                            std::shared_ptr<void> guard)
         {
@@ -494,6 +531,14 @@ namespace muduo
             sendFileRemaining_ = 0;
             sendFileGuard_.reset();
 
+            if (outputBuffer_.readableBytes() > 0)
+            {
+                if (!channel_->isWriting())
+                {
+                    channel_->enableWriting();
+                }
+                return;
+            }
             if (channel_->isWriting())
             {
                 channel_->disableWriting();

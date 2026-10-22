@@ -65,7 +65,6 @@ namespace muduo
             assert(!looping_);
             assertInLoopThread();
             looping_ = true;
-            quit_.set(0);
             while(quit_.get()==0){
                 activeChannels_.clear();
                 pollReturnTime_ = poller_->poll(kPollTimeMs, &activeChannels_);

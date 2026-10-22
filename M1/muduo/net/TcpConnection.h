@@ -100,6 +100,7 @@ namespace muduo{
 
                 void sendInLoop(const void *message, size_t len);
                 void sendMultiInLoop(const std::vector<std::string> &parts);
+                void notifyHighWaterMark(size_t added);
                 void sendFileInLoop(int filefd, off_t offset, size_t count,
                                     std::shared_ptr<void> guard);
                 void continueSendFile();

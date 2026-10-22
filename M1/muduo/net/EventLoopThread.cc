@@ -6,8 +6,17 @@ namespace muduo{
     namespace net{
         EventLoopThread::EventLoopThread(const ThreadInitCallback &cb,const std::string &name):loop_(nullptr),thread_(std::bind(&EventLoopThread::threadFunc,this),name),cond_(mutex_),callback_(cb){}
         EventLoopThread::~EventLoopThread(){
-            if(loop_!=nullptr){
-                loop_->quit();
+            EventLoop *loop = nullptr;
+            {
+                MutexLockGuard lock(mutex_);
+                loop = loop_;
+                if (loop != nullptr)
+                {
+                    loop->quit();
+                }
+            }
+            if (loop != nullptr)
+            {
                 thread_.join();
             }
         }
