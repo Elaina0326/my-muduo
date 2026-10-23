@@ -13,7 +13,7 @@ namespace muduo
     namespace net
     {
         const uint32_t Channel::kNoneEvent = 0;
-        const uint32_t Channel::kReadEvent = EPOLLIN;
+        const uint32_t Channel::kReadEvent = EPOLLIN | EPOLLPRI;
         const uint32_t Channel::kWriteEvent = EPOLLOUT;
 
         Channel::Channel(EventLoop *loop, int fd) : loop_(loop), fd_(fd), events_(0), revents_(0), index_(-1) {}

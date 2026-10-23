@@ -58,7 +58,6 @@ namespace muduo{
                 if (connfd < 0)
                 {
                     int savedErrno = errno;
-                    LOG_SYSERR << "Socket::accept";
                     switch (savedErrno)
                     {
                     // 这些错误是可恢复的，调用方可以继续 accept
@@ -77,9 +76,13 @@ namespace muduo{
                     case ENOBUFS:
                     case ENOMEM:
                     case ENOTSOCK:
+                        errno = savedErrno;
+                        LOG_SYSERR << "Socket:accept";
                         LOG_FATAL << "unexpected error of ::accept " << savedErrno;
                         break;
                     default:
+                        errno = savedErrno;
+                        LOG_SYSERR << "Socket:accept";
                         LOG_FATAL << "unknown error of ::accept " << savedErrno;
                         break;
                     }

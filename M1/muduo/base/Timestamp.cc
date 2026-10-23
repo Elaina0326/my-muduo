@@ -17,8 +17,11 @@ namespace muduo{
     std::string Timestamp::toFormattedString(bool showMicroSeconds) const
     {
         time_t seconds = static_cast<time_t>(microSecondsSinceEpoch_ / kMicroSecond_Per_Second);
-        struct tm tm_time;
-        gmtime_r(&seconds, &tm_time);
+        struct tm tm_time{};
+        if (::gmtime_r(&seconds, &tm_time) == nullptr)
+        {
+            return "invalid(" + toString() + ")";
+        }
         char buf[64] = {0};
 
         if(showMicroSeconds){

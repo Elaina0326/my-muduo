@@ -13,7 +13,9 @@
 #include <gtest/gtest.h>
 
 #include <set>
+#include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 
@@ -226,6 +228,86 @@ TEST(ThreadPoolTest, QueueSizeIsObservable) {
     release.countDown();
     pool.stop();
     EXPECT_EQ(0u, pool.queueSize());     // 停止后队列已排空
+}
+
+
+// ---------------------------------------------------------------------------
+// ★ 有界队列：队列满时 run() 必须阻塞生产者
+// ---------------------------------------------------------------------------
+
+TEST(ThreadPoolTest, MaxQueueSizeBlocksProducer) {
+    muduo::ThreadPool pool("Bounded");
+    pool.setMaxQueueSize(2);
+    pool.start(1);                        // 只有一个 worker
+
+    muduo::CountDownLatch firstStarted(1);
+    muduo::CountDownLatch releaseFirst(1);
+
+    // 任务 1：占住唯一的 worker，让后面的任务只能堆在队列里
+    pool.run([&] {
+        firstStarted.countDown();
+        releaseFirst.wait();
+    });
+    firstStarted.wait();
+
+    // 此时 worker 忙、队列为空。再提交 2 个任务把队列填满。
+    muduo::AtomicInt32 done;
+    pool.run([&done] { done.increment(); });   // 队列 [1]
+    pool.run([&done] { done.increment(); });   // 队列 [1, 2]
+
+    // 第 3 次提交时队列已满（2/2），run() 应该阻塞在 notFull_.wait()
+    muduo::AtomicInt32 producerStarted;
+    muduo::AtomicInt32 thirdReturned;
+    std::thread producer([&] {
+        producerStarted.set(1);
+        pool.run([&done] { done.increment(); });
+        thirdReturned.set(1);                  // run() 返回后才置位
+    });
+
+    // 等生产者确实进入 run()，再给它足够时间证明自己没返回
+    while (producerStarted.get() == 0) {
+        muduo::CurrentThread::sleepUsec(1000);
+    }
+    muduo::CurrentThread::sleepUsec(200 * 1000);   // 200ms
+
+    EXPECT_EQ(0, thirdReturned.get())
+        << "队列已满时 run() 不应该立即返回";
+
+    // 放行 worker：它取走一个任务后会 notify notFull_，生产者随之解除阻塞
+    releaseFirst.countDown();
+    producer.join();
+
+    EXPECT_EQ(1, thirdReturned.get()) << "队列腾出位置后 run() 应该返回";
+
+    pool.stop();
+    EXPECT_EQ(3, done.get());   // 3 个排队任务都要执行
+}
+
+
+// ---------------------------------------------------------------------------
+// ★ 任务抛异常：只记录，不能 terminate 进程，也不能减少 worker
+// ---------------------------------------------------------------------------
+
+TEST(ThreadPoolTest, TaskThrowingDoesNotKillProcess) {
+    muduo::ThreadPool pool("Throw");
+    pool.start(1);
+
+    // 第 1 个任务抛异常，runInThread 里会被 catch 并记录
+    pool.run([] { throw std::runtime_error("boom"); });
+
+    // 第 2 个任务必须仍然被执行 —— 如果异常逃出线程入口，
+    // 进程会直接 std::terminate，这个用例根本走不到断言。
+    muduo::AtomicInt32 ok;
+    pool.run([&ok] { ok.increment(); });
+
+    // 有界等待（1 秒），避免实现退化成"worker 静默退出"时测试无限挂起
+    for (int i = 0; i < 100 && ok.get() == 0; ++i) {
+        muduo::CurrentThread::sleepUsec(10 * 1000);
+    }
+
+    EXPECT_EQ(1, ok.get()) << "抛异常之后 worker 应该继续处理后续任务";
+
+    pool.stop();
 }
 
 

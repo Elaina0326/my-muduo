@@ -20,7 +20,11 @@ namespace muduo{
             explicit ThreadPool(const std::string &nameArg = std::string("ThreadPool"));
 
             ~ThreadPool();
-
+        void setMaxQueueSize(size_t maxSize)
+        {
+            assert(threads_.empty());
+            maxQueueSize_ = maxSize;
+        }
             void setThreadInitCallback(const Task&cb){
                 threadInitCallback_ = cb;
             }
@@ -35,6 +39,7 @@ namespace muduo{
             void run(Task f);
 
         private:
+            bool isFull() const;
             void runInThread();
             bool take(Task *task);
 

@@ -22,7 +22,7 @@
 | `muduo/net/` | 38 | 3589 |
 | `tests/` | 18 | 3493 |
 
-另有 129 个单元测试、1 个 echo 集成测试脚本（6 项断言）。
+另有 131 个单元测试、1 个 echo 集成测试脚本（6 项断言）。
 
 ## 2. 架构图
 
@@ -117,7 +117,7 @@ IO 线程 × N
 | 文件 | 作用 |
 |---|---|
 | `examples/echo_server.cc` | echo 服务器（手写 Acceptor + Channel，用于验证底层组件） |
-| `tests/test_*.cc` | GoogleTest 单元测试，共 129 个用例 |
+| `tests/test_*.cc` | GoogleTest 单元测试，共 131 个用例 |
 | `tests/integration/test_echo.sh` | echo 集成测试（基础回显、并发、1MB 大流量、存活检查） |
 
 ## 4. 怎么构建
