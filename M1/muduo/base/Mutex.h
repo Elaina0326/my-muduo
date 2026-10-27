@@ -34,6 +34,21 @@ namespace muduo{
         pthread_mutex_t* getPthreadMutex(){
             return &mutex_;
         }
+        class UnassignGuard : noncopyable
+        {
+        public:
+            explicit UnassignGuard(MutexLock &owner) : owner_(owner)
+            {
+                owner_.unassignHolder();
+            }
+            ~UnassignGuard()
+            {
+                owner_.assignHolder();
+            }
+
+        private:
+            MutexLock &owner_;
+        };
 
     private:
         friend class Condition;

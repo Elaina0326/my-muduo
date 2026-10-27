@@ -62,6 +62,7 @@ TEST(ConditionTest, WaitWakesAfterNotify) {
         while (!sig.ready) {
             sig.cond.wait();
         }
+        EXPECT_TRUE(sig.mutex.isLockByThisThread());
         // wait 返回时就重新持有锁了
     });
 

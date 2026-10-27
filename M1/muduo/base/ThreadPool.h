@@ -39,7 +39,6 @@ namespace muduo{
             void run(Task f);
 
         private:
-            bool isFull() const;
             void runInThread();
             bool take(Task *task);
 

@@ -18,7 +18,10 @@ namespace muduo{
             pthread_cond_destroy(&pcond_);
         }
 
-        void wait(){
+        void wait()
+        {
+            assert(mutex_.isLockByThisThread()); 
+            MutexLock::UnassignGuard ug(mutex_);
             pthread_cond_wait(&pcond_, mutex_.getPthreadMutex());
         }
         void notify(){
@@ -39,7 +42,7 @@ namespace muduo{
             abstime.tv_sec += static_cast<time_t>((abstime.tv_nsec + nanoseconds) / kNanoSecondsPerSecond);
 
             abstime.tv_nsec = static_cast<long>((abstime.tv_nsec + nanoseconds) % kNanoSecondsPerSecond);
-
+            MutexLock::UnassignGuard ug(mutex_);
             return ETIMEDOUT == pthread_cond_timedwait(&pcond_, mutex_.getPthreadMutex(), &abstime);
         }
 

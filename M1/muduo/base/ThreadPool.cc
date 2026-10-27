@@ -57,11 +57,7 @@ namespace muduo
         MutexLockGuard lock(mutex_);
         return queue_.size();
     }
-    bool ThreadPool::isFull() const
-    {
-        assert(mutex_.isLockByThisThread()); // 必须在持锁时调用
-        return maxQueueSize_ > 0 && queue_.size() >= maxQueueSize_;
-    }
+
     void ThreadPool::run(Task task)
     {
         if (threads_.empty())
