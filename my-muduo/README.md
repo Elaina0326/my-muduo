@@ -2,7 +2,8 @@
 
 ## 1. 项目是什么
 
-一个从零实现的 Reactor 网络库，用于学习 Linux 网络编程与 C++ 后端开发。
+一个以 muduo 的架构和 API 为参考、从基础组件开始实现的 Reactor 网络库，
+用于学习 Linux 网络编程与 C++ 后端开发。
 只依赖 pthread 和 Linux 系统调用，不引入任何第三方网络库。
 
 目前完成的是基础设施层与网络层：
@@ -23,6 +24,8 @@
 | `tests/` | 18 | 3493 |
 
 另有 131 个单元测试、1 个 echo 集成测试脚本（6 项断言）。
+
+许可证：MIT；架构参考 muduo 并在其代码基础上改写，详见 `LICENSE` 与 `NOTICE`。
 
 ## 2. 架构图
 
@@ -84,7 +87,7 @@ IO 线程 × N
 | `Mutex.h` / `Condition.h` | 互斥锁、条件变量（RAII + 持锁线程记录） |
 | `CountDownLatch.h` | 倒计时门闩，用于等待线程就绪 |
 | `Thread.h/.cc` | 线程封装：命名、启动同步、异常安全析构 |
-| `ThreadPool.h/.cc` | 业务线程池（无界任务队列） |
+| `ThreadPool.h/.cc` | 业务线程池（任务队列可设上限，默认无界） |
 | `BlockingQueue.h` | 通用阻塞队列工具 |
 | `Timestamp.h/.cc` | 微秒时间戳与格式化 |
 | `CurrentThread.h/.cc` | 线程局部缓存（tid、线程名） |
@@ -187,7 +190,58 @@ bash tests/integration/test_echo.sh ./build/echo_server 18888
 - 所有可能阻塞的地方加超时（`SO_RCVTIMEO` / `timeout` / ctest 的 60 秒）
 - 写完用例后做一次**反向验证**：故意改坏实现，确认测试真的会失败
 
-## 6. 已知限制
+## 6. 与 muduo 的差异
+
+> 本项目以 muduo 的架构和 API 为参考，代码在其基础上改写。下面 7 处是与上游
+> muduo 有意的差异，按性质分三类。这些判断针对的是本项目的使用场景，
+> 不代表 muduo 本身有问题。
+
+### 修正（缺陷）
+
+1. **`SocketsOps::accept` 的错误分类**
+   上游对每次 `accept4` 失败都记 `LOG_SYSERR`，未知错误直接终止进程。
+   本项目把 errno 分成两组：`EAGAIN / ECONNABORTED / EINTR / EPROTO / EPERM / EMFILE`
+   是可恢复错误，静默返回给 `Acceptor`（EMFILE 由预留 idleFd 兜底）；
+   `EBADF / EFAULT / EINVAL / ENFILE / ENOBUFS / ENOMEM / ENOTSOCK` 才记日志并 `LOG_FATAL`。
+   LT 模式下 EAGAIN/EMFILE 是常态，逐条打日志会在高并发下刷屏。
+
+2. **`EventLoopThread` 析构时的 eventfd 竞态**
+   上游析构函数无锁读 `loop_` 再调用 `quit()`；而 loop 线程可能已经跑完
+   `loop()`、析构 `EventLoop` 并关闭 `wakeupFd_`，此时 `quit()` 会往已关闭
+   （甚至被复用）的 fd 上 `write`。本项目的析构函数在 `mutex_` 保护下读取
+   `loop_` 并调用 `quit()`，`threadFunc` 也在同一把锁下清空 `loop_`，
+   然后才在锁外 `join()`。
+
+3. **`Timestamp::toFormattedString` 检查 `gmtime_r` 返回值**
+   上游忽略返回值；`gmtime_r` 失败时不会写 `tm_time`，后续读取属于未定义行为。
+   本项目把 `tm` 零初始化，并在失败时返回带原始值的诊断串
+   `invalid(秒.微秒)`。
+
+4. **`ThreadPool` 不让任务异常逃逸**
+   上游没有捕获；异常一旦逃出线程入口就会 `std::terminate()`。
+   本项目在线程初始化回调和任务执行处分别捕获 `std::exception` 与 `...`，
+   记录 `LOG_ERROR` 后继续处理后续任务，不会静默减少 worker。
+
+### 收敛（移除无用能力）
+
+5. **移除未消费的 `EPOLLPRI` 注册**
+   上游 `kReadEvent = EPOLLIN | EPOLLPRI | EPOLLRDHUP`。`EPOLLPRI` 对应
+   TCP 紧急数据（OOB），但本项目没有任何代码读取 OOB；只要对端发 1 字节
+   OOB，LT 模式下的 epoll 就会持续报告 `EPOLLPRI`，形成忙循环（一字节 DoS）。
+   本项目 `kReadEvent = EPOLLIN`，对端关闭通过 `read()` 返回 0 识别。
+
+### 取舍（API 形态）
+
+6. **`BlockingQueue::take` 返回 `bool`**
+   上游是阻塞的 `T take()`，消费者无法被通知退出。本项目改成
+   `bool take(T* out)` 并增加 `close()`：队列关闭且为空时返回 `false`，
+   消费线程可以干净退出。这是接口形态差异，不是缺陷。
+
+7. **`Atomic` 少一个 `decrement()`**
+   上游提供 `decrement()`；本项目只保留 `decrementAndGet()` / `add(-1)` 等
+   实际用到的操作，API 面更小。需要时用 `add(-1)` 等价替换。
+
+## 7. 已知限制
 
 - **没有协议层**：只有 TCP，尚未实现 HTTP/静态文件服务。
 - **测试覆盖不均**：`TcpConnection` 只有 2 个用例（sendMulti、sendfile 交错）；
