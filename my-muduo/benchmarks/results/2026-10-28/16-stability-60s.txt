@@ -1,0 +1,17 @@
+# label  : stability-60s
+# server : ./build-rel/echo_server_mt 8888 4
+# client : ./build-rel/bench_client 127.0.0.1 8888 4 0 1024 --connections 100 --duration 60
+
+target=127.0.0.1:8888 connections=100 threads=4 duration=60s (messages arg ignored) payload=1024B warmup=1s
+------------------------------------------
+connect success : 100/100 (100.0%)
+completed       : 10586325 requests, timeout=0, io_error=0
+elapsed         : 60.001 s
+QPS             : 176435.2
+per-thread QPS (active time) : 44421.0 45116.7 44062.3 42837.8
+samples         : 423453 rounds (batch RTT, 0 failed)    max : 2097 us
+min (batch)     : 139 us
+avg (batch)     : 567 us
+P50 (batch)     : 531 us
+P99 (batch)     : 1126 us
+P999 (batch)    : 1307 us

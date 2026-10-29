@@ -1,0 +1,17 @@
+# label  : size-64B
+# server : ./build-rel/echo_server_mt 8888 4
+# client : ./build-rel/bench_client 127.0.0.1 8888 4 5000 64 --connections 100 
+
+target=127.0.0.1:8888 connections=100 threads=4 messages/conn=5000 payload=64B warmup=1s
+------------------------------------------
+connect success : 100/100 (100.0%)
+completed       : 500000 requests, timeout=0, io_error=0
+elapsed         : 2.822 s
+QPS             : 177181.4
+per-thread QPS (active time) : 44304.6 44827.4 47053.2 45446.1
+samples         : 20000 rounds (batch RTT, 0 failed)    max : 8680 us
+min (batch)     : 180 us
+avg (batch)     : 551 us
+P50 (batch)     : 510 us
+P99 (batch)     : 1146 us
+P999 (batch)    : 3331 us

@@ -1,0 +1,17 @@
+# label  : delay-single-1KB
+# server : ./build-rel/echo_server_mt 8888 0
+# client : ./build-rel/bench_client 127.0.0.1 8888 1 20000 1024 --connections 1 
+
+target=127.0.0.1:8888 connections=1 threads=1 messages/conn=20000 payload=1024B warmup=1s
+------------------------------------------
+connect success : 1/1 (100.0%)
+completed       : 20000 requests, timeout=0, io_error=0
+elapsed         : 1.713 s
+QPS             : 11678.0
+per-thread QPS (active time) : 11678.9
+samples         : 20000 rounds (1 msg/round, 0 failed)    max : 457 us
+min (rtt)     : 47 us
+avg (rtt)     : 86 us
+P50 (rtt)     : 77 us
+P99 (rtt)     : 160 us
+P999 (rtt)    : 229 us

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(M1 CXX)
+project(my_muduo CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -122,3 +122,41 @@ target_include_directories(echo_server PRIVATE .)
 target_compile_options(echo_server PRIVATE -Wall -Wextra)
 target_link_libraries(echo_server PRIVATE Threads::Threads)
 apply_sanitizers(echo_server)
+
+# ---------------------------------------------------------------------------
+# echo 服务器（多线程，走完整 TcpServer）
+#
+# 与上面那个的分工：echo_server 手写 Acceptor + Channel、单线程，用于单独
+# 验证底层组件；这个走 TcpServer + EventLoopThreadPool，用于压测和多核扩展性
+# 对比。两者共用同一份 ${MUDUO_SRCS}。
+# ---------------------------------------------------------------------------
+add_executable(echo_server_mt
+    examples/echo_server_mt.cc
+    ${MUDUO_SRCS}
+)
+target_include_directories(echo_server_mt PRIVATE .)
+target_compile_options(echo_server_mt PRIVATE -Wall -Wextra)
+target_link_libraries(echo_server_mt PRIVATE Threads::Threads)
+apply_sanitizers(echo_server_mt)
+
+# ---------------------------------------------------------------------------
+# 压测客户端
+#
+# 独立可执行文件：只用 POSIX socket + std::thread，不链接 MUDUO_SRCS。
+# 这样客户端开销最小，测出来的才是服务端的 RTT。
+#
+# 压测请用 Release 构建：
+#   cmake -S . -B build-rel -DCMAKE_BUILD_TYPE=Release
+#   cmake --build build-rel -j4
+# ---------------------------------------------------------------------------
+add_executable(bench_client
+    benchmarks/bench_client.cc
+)
+target_compile_options(bench_client PRIVATE -Wall -Wextra)
+target_link_libraries(bench_client PRIVATE Threads::Threads)
+apply_sanitizers(bench_client)
+
+# Debug 构建下的压测数据没有意义，Release 时确保 -O2
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    target_compile_options(bench_client PRIVATE -O2)
+endif()

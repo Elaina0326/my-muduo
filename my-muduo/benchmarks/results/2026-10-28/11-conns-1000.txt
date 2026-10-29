@@ -1,0 +1,17 @@
+# label  : conns-1000
+# server : ./build-rel/echo_server_mt 8888 4
+# client : ./build-rel/bench_client 127.0.0.1 8888 8 600 1024 --connections 1000 
+
+target=127.0.0.1:8888 connections=1000 threads=8 messages/conn=600 payload=1024B warmup=1s
+------------------------------------------
+connect success : 1000/1000 (100.0%)
+completed       : 600000 requests, timeout=0, io_error=0
+elapsed         : 3.330 s
+QPS             : 180158.3
+per-thread QPS (active time) : 23413.9 22999.0 24064.5 22945.9 23282.1 22540.1 24090.3 23828.6
+samples         : 4800 rounds (batch RTT, 0 failed)    max : 13585 us
+min (batch)     : 820 us
+avg (batch)     : 5345 us
+P50 (batch)     : 5434 us
+P99 (batch)     : 9411 us
+P999 (batch)    : 12670 us

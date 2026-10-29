@@ -1,8 +1,8 @@
-M1 — NOTICE
+my-muduo — NOTICE
 
-本项目（M1）是一个学习项目：架构参考 muduo，代码在其基础上改写。
+本项目（my-muduo）是一个学习项目：架构参考 muduo，代码在其基础上改写。
 
-M1 is a learning project. Its architecture and API design are based on
+my-muduo is a learning project. Its architecture and API design are based on
 muduo (https://github.com/chenshuo/muduo). Parts of the code are rewritten
 from muduo and then modified.
 
