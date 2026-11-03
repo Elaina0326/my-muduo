@@ -299,7 +299,7 @@ min/avg/P50/P99/P999/max，以及超时、IO 错误和被丢弃的失败轮次�
 - **端口被占用时直接 abort**：`Acceptor` 里是 `LOG_ERROR` + `abort`（exit 134），
   不是友好提示；示例层没有拦截。
 - **没有优雅退出**：未实现 `SignalHandler`（signalfd），进程收到 SIGINT/SIGTERM 直接退出。
-- **还没有正式压测报告**：`benchmarks/bench_client` 已可用，但 QPS/延迟数据尚未整理成文档。
+- **压测数据只适合同机相对比较**：报告见 [`docs/performance.md`](docs/performance.md)——同机 loopback，客户端也可能成为瓶颈；所有 QPS 都必须绑定客户端配置。
 - **仅支持 IPv4**：`InetAddress` 只封装 `sockaddr_in`。
 - **无连接级超时**：没有 idle timeout / 读写超时，慢连接会一直占用 fd。
 - **sendfile 的降级路径吃内存**：输出缓冲非空时降级为 `pread` 整个文件再 append，
