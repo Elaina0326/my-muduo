@@ -72,7 +72,15 @@ namespace muduo{
           conn->setCloseCallback(
               std::bind(&TcpServer::removeConnection, this, std::placeholders::_1));
           ioLoop->runInLoop(std::bind(&TcpConnection::connectEstablished, conn));
+
+          const int idleSec = idleTimeoutSeconds_;
+          ioLoop->runInLoop([conn, idleSec]
+                            { conn->connectEstablished();
+                            if(idleSec>0){
+                                conn->enableIdleTimeout(idleSec);
+                            } });
       }
+
       void TcpServer::removeConnection(const TcpConnectionPtr &conn)
       {
           loop_->runInLoop(

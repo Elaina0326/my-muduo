@@ -9,7 +9,8 @@
 
 #include "Buffer.h"
 #include "Callbacks.h"
-#include "InetAddress.h"
+#include "InetAddress.h" 
+#include "TimerId.h"
 #include "muduo/base/Timestamp.h"
 #include "muduo/base/noncopyable.h"
 
@@ -84,6 +85,7 @@ namespace muduo{
 
                 void connectEstablished();
                 void connectDestroyed();
+                void enableIdleTimeout(int seconds);
 
             private:
                 enum StateE
@@ -97,6 +99,9 @@ namespace muduo{
                 void handleWrite();
                 void handleClose();
                 void handleError();
+
+                void armIdleTimer(double delay);
+                void handleIdleTimeout();
 
                 void sendInLoop(const void *message, size_t len);
                 void sendMultiInLoop(const std::vector<std::string> &parts);
@@ -130,6 +135,11 @@ namespace muduo{
                 CloseCallback closeCallback_;
 
                 size_t highWaterMark_;
+                Timestamp lastActiveTime_;
+                TimerId idleTimer_;
+                int idleTimeoutSeconds_ = 0;
+                bool idleTimerArmed_ = false;
+
                 Buffer inputBuffer_;
                 Buffer outputBuffer_;
                 std::any context_;

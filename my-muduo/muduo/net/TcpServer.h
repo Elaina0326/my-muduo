@@ -35,6 +35,10 @@ namespace muduo{
 
             void setThreadNum(int numThreads);
 
+            void setIdleTimeout(int seconds){
+                idleTimeoutSeconds_ = seconds;
+            }
+
             void setThreadInitCallback(const ThreadInitCallback &cb)
             {
                 threadInitCallback_ = cb;
@@ -76,6 +80,8 @@ namespace muduo{
 
             AtomicInt32 started_;
             int nextConnId_ = 1;
+
+            int idleTimeoutSeconds_ = 0;
 
             ConnectionMap connections_;
         };

@@ -32,8 +32,8 @@ namespace muduo
               channel_(new Channel(loop, sockfd)),
               localAddr_(localAddr),
               peerAddr_(peerAddr),
-              highWaterMark_(64 * 1024 * 1024)
-        {
+              highWaterMark_(64 * 1024 * 1024),
+              lastActiveTime_(Timestamp::now()){
             assert(loop_ != nullptr);
 
             channel_->setReadCallback(
@@ -61,6 +61,8 @@ namespace muduo
 
             if (n > 0)
             {
+                lastActiveTime_ = receiveTime;
+
                 messageCallback_(shared_from_this(), &inputBuffer_, receiveTime);
             }
             else if (n == 0)
@@ -415,8 +417,58 @@ namespace muduo
                                              shared_from_this(), oldLen + added));
             }
         }
+
+        void TcpConnection::enableIdleTimeout(int seconds){
+            loop_->assertInLoopThread();
+
+            if(seconds<=0){
+                idleTimeoutSeconds_ = 0;
+                if(idleTimerArmed_){
+                    loop_->cancel(idleTimer_);
+                    idleTimerArmed_ = false;
+                }
+                return;
+            }
+            idleTimeoutSeconds_ = seconds;
+            lastActiveTime_ = Timestamp::now();
+            armIdleTimer(seconds);
+        }
+
+        void TcpConnection::armIdleTimer(double delay){
+            loop_->assertInLoopThread();
+            if (idleTimerArmed_)
+            {
+                loop_->cancel(idleTimer_);
+                idleTimerArmed_ = false;
+            }
+            std::weak_ptr<TcpConnection> weak = shared_from_this();
+            idleTimer_ = loop_->runAfter(delay, [weak]
+                                         {
+                if(TcpConnectionPtr conn = weak.lock() ){
+                    conn->handleIdleTimeout();
+                } });
+            idleTimerArmed_ = true;
+        }
+
+        void TcpConnection::handleIdleTimeout(){
+            loop_->assertInLoopThread();
+            idleTimerArmed_ = false;
+
+            if(state_!=kConnected){
+                return;
+            }
+            const double idle = timeDiff(Timestamp::now(), lastActiveTime_);
+            if(idle<static_cast<double>(idleTimeoutSeconds_)){
+                armIdleTimer(static_cast<double>(idleTimeoutSeconds_) - idle);
+                return;
+            }
+            LOG_INFO << "connection [" << name_ << "] idle for " << idle
+                     << "s (limit " << idleTimeoutSeconds_ << "s), closing";
+            forceClose();
+        }
+
         void TcpConnection::sendFile(int filefd, off_t offset, size_t count,
-                                     std::shared_ptr<void> guard)
+                                    std::shared_ptr<void> guard)
         {
             if (filefd < 0 || count == 0)
                 return;
