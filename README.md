@@ -15,13 +15,13 @@
 - 应用层 `Buffer`：三索引 + `readv` 分散读
 - 非阻塞 connect、指数退避重连、半关闭、EMFILE 兜底、`sendfile` 零拷贝
 
-规模（2026-10-22）：
+规模（2026-11-05）：
 
 | 目录 | 文件 | 行数 |
 |---|---:|---:|
-| `muduo/base/` | 17 | 942 |
-| `muduo/net/` | 38 | 3589 |
-| `tests/` | 18 | 3493 |
+| `muduo/base/` | 17 | 1013 |
+| `muduo/net/` | 38 | 3668 |
+| `tests/` | 19 | 4232 |
 
 另有 144 个单元测试、1 个 echo 集成测试脚本（6 项断言）。
 
@@ -130,7 +130,7 @@ IO 线程 × N
 环境：Linux / WSL2、g++（C++17）、CMake ≥ 3.10、GoogleTest。
 
 ```bash
-git clone git@github.com:Elaina0326/my-muduo.git
+git clone https://github.com/Elaina0326/my-muduo.git
 cd my-muduo
 
 # 常规构建
@@ -320,6 +320,6 @@ min/avg/P50/P99/P999/max，以及超时、IO 错误和被丢弃的失败轮次�
 | 2026-11-05 | 高水位慢路径漏通知 | `sendMulti` 的 `writev` 失败分支补 `notifyHighWaterMark`；新增只读观测口 `outputBufferSize()` | `HighWaterMarkFiresOnce*` 2 个用例 |
 | 2026-11-05 | `newConnection` 重复 `connectEstablished` | 每条连接触发两次 `connectionCallback`、两次 `epoll_ctl`，删掉多余的一次 | `TcpServerTest.ConnectionCallbackFiresOnce` |
 
-> 十个真实问题的定位与修复过程（含 Debug 下 `assert` 才暴露的那个）见
+> 十四个真实问题的定位与修复过程（含 Debug 下 `assert` 才暴露的那个）见
 > [`docs/postmortem.md`](docs/postmortem.md)。
 
