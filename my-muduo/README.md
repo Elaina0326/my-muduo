@@ -23,7 +23,7 @@
 | `muduo/net/` | 38 | 3589 |
 | `tests/` | 18 | 3493 |
 
-另有 131 个单元测试、1 个 echo 集成测试脚本（6 项断言）。
+另有 144 个单元测试、1 个 echo 集成测试脚本（6 项断言）。
 
 许可证：MIT；架构参考 muduo 并在其代码基础上改写，详见 `LICENSE` 与 `NOTICE`。
 
@@ -122,7 +122,7 @@ IO 线程 × N
 | `examples/echo_server.cc` | echo 服务器（手写 Acceptor + Channel，单线程，用于验证底层组件） |
 | `examples/echo_server_mt.cc` | echo 服务器（`TcpServer` + EventLoopThreadPool，可配 IO 线程数，压测用；单连接输出缓冲超 8 MB 主动断开慢消费者） |
 | `benchmarks/bench_client.cc` | ping-pong 压测客户端：多线程、TCP_NODELAY、warmup、QPS/P50/P99 |
-| `tests/test_*.cc` | GoogleTest 单元测试，共 131 个用例 |
+| `tests/test_*.cc` | GoogleTest 单元测试，共 144 个用例 |
 | `tests/integration/test_echo.sh` | echo 集成测试（基础回显、并发、1MB 大流量、存活检查） |
 
 ## 4. 怎么构建
@@ -294,14 +294,13 @@ min/avg/P50/P99/P999/max，以及超时、IO 错误和被丢弃的失败轮次�
 ## 7. 已知限制
 
 - **没有协议层**：只有 TCP，尚未实现 HTTP/静态文件服务。
-- **测试覆盖不均**：`TcpConnection` 只有 2 个用例（sendMulti、sendfile 交错）；
-  `TcpServer` / `TcpClient` / `Connector` 还没有单元测试。
+- **测试覆盖不均**：`TcpClient` / `Connector` 还没有单元测试（目前是零用例）；
+  `TcpConnection` 5 个、`TcpServer` 4 个，其余模块见 `tests/`。
 - **端口被占用时直接 abort**：`Acceptor` 里是 `LOG_ERROR` + `abort`（exit 134），
   不是友好提示；示例层没有拦截。
 - **没有优雅退出**：未实现 `SignalHandler`（signalfd），进程收到 SIGINT/SIGTERM 直接退出。
 - **压测数据只适合同机相对比较**：报告见 [`docs/performance.md`](docs/performance.md)——同机 loopback，客户端也可能成为瓶颈；所有 QPS 都必须绑定客户端配置。
 - **仅支持 IPv4**：`InetAddress` 只封装 `sockaddr_in`。
-- **无连接级超时**：没有 idle timeout / 读写超时，慢连接会一直占用 fd。
 - **sendfile 的降级路径吃内存**：输出缓冲非空时降级为 `pread` 整个文件再 append，
   大文件请求会占用与文件等量的用户态内存。
 - **水位保护是每连接的，没有全局上限**：`echo_server_mt` 单条连接输出缓冲超过 8 MB
@@ -309,3 +308,17 @@ min/avg/P50/P99/P999/max，以及超时、IO 错误和被丢弃的失败轮次�
 - **日志是同步写 stdout**：没有异步双缓冲、文件滚动。
 - **EventLoop 不可重启**：`quit()` 之后 `quit_` 保持为 1，不支持再次 `loop()`。
 - **只支持 LT**：没有实现 ET 模式。
+
+## 8. 已解决的问题
+
+> 对应「已知限制」里被划掉的项，保留记录以便追溯。
+
+| 时间 | 问题 | 做法 | 验证 |
+|---|---|---|---|
+| 2026-11-04 | 无连接级超时 | 惰性判定的 idle timeout，`setIdleTimeout()` 默认关闭；定时器回调持 `weak_ptr`，续期只更新一个 `Timestamp` | `IdleTimeoutTest` 6 个用例 |
+| 2026-11-05 | 高水位慢路径漏通知 | `sendMulti` 的 `writev` 失败分支补 `notifyHighWaterMark`；新增只读观测口 `outputBufferSize()` | `HighWaterMarkFiresOnce*` 2 个用例 |
+| 2026-11-05 | `newConnection` 重复 `connectEstablished` | 每条连接触发两次 `connectionCallback`、两次 `epoll_ctl`，删掉多余的一次 | `TcpServerTest.ConnectionCallbackFiresOnce` |
+
+> 十个真实问题的定位与修复过程（含 Debug 下 `assert` 才暴露的那个）见
+> [`docs/postmortem.md`](docs/postmortem.md)。
+
