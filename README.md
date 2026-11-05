@@ -130,7 +130,8 @@ IO 线程 × N
 环境：Linux / WSL2、g++（C++17）、CMake ≥ 3.10、GoogleTest。
 
 ```bash
-cd ~/learn
+git clone git@github.com:Elaina0326/my-muduo.git
+cd my-muduo
 
 # 常规构建
 cmake -S . -B build
@@ -164,7 +165,7 @@ cmake --build build-tsan -j4
 ## 5. 怎么测
 
 ```bash
-cd ~/learn
+cd my-muduo
 
 # 全部单元测试
 ./build/unit_tests
