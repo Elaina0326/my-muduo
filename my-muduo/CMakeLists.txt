@@ -99,6 +99,7 @@ add_executable(unit_tests
     tests/test_acceptor.cc
     tests/test_tcpconnection.cc
     tests/test_idletimeout.cc
+    tests/test_tcpserver.cc
     # 每写一个测试文件就在这里加一行：
     ${MUDUO_SRCS}
 )

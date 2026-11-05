@@ -78,6 +78,7 @@ namespace muduo{
 
                 Buffer *inputBuffer() { return &inputBuffer_; }
                 Buffer *outputBuffer() { return &outputBuffer_; }
+                size_t outputBufferSize() const { return outputBuffer_.readableBytes(); }
                 bool hasPendingData() const
                 {
                     return sendFileActive_ || outputBuffer_.readableBytes() > 0;

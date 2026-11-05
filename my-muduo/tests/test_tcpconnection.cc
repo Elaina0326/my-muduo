@@ -19,7 +19,10 @@
 #include <unistd.h>
 
 #include <atomic>
+#include <algorithm>
+#include <cerrno>
 #include <chrono>
+#include <functional>
 #include <cstdio>
 #include <cstdlib>
 #include <string>
@@ -246,6 +249,189 @@ TEST(TcpConnectionTest, HighWaterMarkFiresOnceWhenCrossed)
     EXPECT_EQ(callsAfterCrossing, 1) << "跨过水位时应恰好触发一次（慢路径也不能漏）";
     EXPECT_GE(sizeAfterCrossing, 1024u) << "回调参数应 >= 水位";
     EXPECT_EQ(calls.load(), 1) << "缓冲仍高于水位时不应重复触发";
+
+    tearDown(&loop, conn);
+    conn.reset();
+    ::close(fds[1]);
+}
+
+// ---------------------------------------------------------------------------
+// ④ 高水位回调：快路径 EAGAIN 追加时也要触发
+//
+// 和 ③ 互补：③ 预填内核缓冲，逼 sendMulti 走慢路径；
+// 这里在空连接上直接 sendMulti(8KB×2)，writev 只写进一部分，
+// 剩余追加进 outputBuffer_ —— 跨水位发生在快路径的 EAGAIN 分支。
+// ---------------------------------------------------------------------------
+TEST(TcpConnectionTest, HighWaterMarkFiresOnceOnFastPath)
+{
+    using namespace muduo::net;
+
+    int fds[2];
+    ASSERT_EQ(0, ::socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+
+    int bufSize = 1024;
+    ASSERT_EQ(0, ::setsockopt(fds[0], SOL_SOCKET, SO_SNDBUF, &bufSize, sizeof(bufSize)));
+    ASSERT_EQ(0, ::setsockopt(fds[1], SOL_SOCKET, SO_RCVBUF, &bufSize, sizeof(bufSize)));
+
+    int flags = ::fcntl(fds[0], F_GETFL, 0);
+    ASSERT_GE(flags, 0);
+    ASSERT_EQ(0, ::fcntl(fds[0], F_SETFL, flags | O_NONBLOCK));
+
+    EventLoop loop;
+    auto conn = makeConnection(&loop, fds[0]);
+
+    std::atomic<int> calls{0};
+    std::atomic<size_t> firstSize{0};
+    conn->setHighWaterMarkCallback(
+        [&calls, &firstSize](const TcpConnectionPtr &, size_t size)
+        {
+            if (calls.fetch_add(1) == 0)
+            {
+                firstSize = size;
+            }
+        },
+        1024);
+
+    const std::vector<std::string> big{std::string(8192, 'a'), std::string(8192, 'b')};
+
+    // 空连接、内核发送缓冲只有约 4KB：16KB 写不完，剩余追加 → 快路径跨水位
+    conn->sendMulti(big);
+
+    // 缓冲仍高于水位：再发一批，不应重复触发
+    loop.runAfter(0.05, [&]
+                  { conn->sendMulti(big); });
+
+    int callsAfter = 0;
+    size_t sizeAfter = 0;
+    loop.runAfter(0.20, [&]
+                  {
+        callsAfter = calls.load();
+        sizeAfter = firstSize.load(); });
+
+    loop.runAfter(0.30, [&]
+                  { loop.quit(); });
+
+    loop.loop();
+
+    EXPECT_EQ(callsAfter, 1) << "快路径 EAGAIN 追加跨水位时应触发一次";
+    EXPECT_GE(sizeAfter, 1024u) << "回调参数应 >= 水位";
+    EXPECT_EQ(calls.load(), 1) << "缓冲仍高于水位时不应重复触发";
+
+    tearDown(&loop, conn);
+    conn.reset();
+    ::close(fds[1]);
+}
+
+// ---------------------------------------------------------------------------
+// ⑤ 慢消费者：生产者尊重水位时，输出缓冲有界、数据完整
+//
+// 关键：不能一次 send 1MB —— 那样子一次 append 就是 1MB，任何"上界"断言都
+// 是恒真式。这里每 1ms 只追加一个 4KB 块，且缓冲达到水位就停，模拟一个
+// 按水位做背压的生产者。真正的上界应是 "水位 + 一个块"。
+// ---------------------------------------------------------------------------
+TEST(TcpConnectionTest, SlowConsumerOutputBufferBounded)
+{
+    using namespace muduo::net;
+
+    int fds[2];
+    ASSERT_EQ(0, ::socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+
+    int bufSize = 4096;
+    ASSERT_EQ(0, ::setsockopt(fds[0], SOL_SOCKET, SO_SNDBUF, &bufSize, sizeof(bufSize)));
+    ASSERT_EQ(0, ::setsockopt(fds[1], SOL_SOCKET, SO_RCVBUF, &bufSize, sizeof(bufSize)));
+
+    // TcpConnection 的前提：两端都非阻塞
+    int flags0 = ::fcntl(fds[0], F_GETFL, 0);
+    ASSERT_GE(flags0, 0);
+    ASSERT_EQ(0, ::fcntl(fds[0], F_SETFL, flags0 | O_NONBLOCK));
+
+    int flags = ::fcntl(fds[1], F_GETFL, 0);
+    ASSERT_GE(flags, 0);
+    ASSERT_EQ(0, ::fcntl(fds[1], F_SETFL, flags | O_NONBLOCK));
+
+    EventLoop loop;
+    auto conn = makeConnection(&loop, fds[0]);
+
+    constexpr size_t kTotal = 1024 * 1024;   // 总共 1MB
+    constexpr size_t kChunk = 4 * 1024;      // 每块 4KB
+    constexpr size_t kHighWaterMark = 4 * 1024;
+
+    size_t hwmCalls = 0;
+    size_t hwmSize = 0;
+    conn->setHighWaterMarkCallback(
+        [&](const TcpConnectionPtr &, size_t size)
+        {
+            ++hwmCalls;
+            hwmSize = size;
+        },
+        kHighWaterMark);
+
+    std::atomic<size_t> received{0};
+    std::atomic<bool> stop{false};
+
+    std::thread client([&]
+                       {
+        std::vector<char> buf(4096);
+        // 前 200ms 每 20ms 只读 1KB —— 慢消费者，让服务端缓冲堆起来
+        for (int i = 0; i < 10 && !stop.load(); ++i)
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            const ssize_t n = ::read(fds[1], buf.data(), 1024);
+            if (n > 0)
+            {
+                received += static_cast<size_t>(n);
+            }
+        }
+        // 之后尽快排空
+        while (!stop.load() && received.load() < kTotal)
+        {
+            const ssize_t n = ::read(fds[1], buf.data(), buf.size());
+            if (n > 0)
+            {
+                received += static_cast<size_t>(n);
+            }
+            else if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK))
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            else
+            {
+                break;
+            }
+        }
+        loop.quit(); });
+
+    size_t sent = 0;
+    size_t peak = 0;
+
+    // 生产者：缓冲到水位就停，每次只追加一个块
+    loop.runEvery(0.001, [&]
+                  {
+        while (sent < kTotal && conn->outputBufferSize() < kHighWaterMark)
+        {
+            conn->send(std::string(kChunk, 'x'));
+            sent += kChunk;
+            peak = std::max(peak, conn->outputBufferSize());
+        } });
+
+    // 兜底：10 秒还没收完就退出，交给断言报错
+    loop.runAfter(10.0, [&]
+                  {
+        stop = true;
+        loop.quit(); });
+
+    loop.loop();
+
+    stop = true;
+    client.join();
+
+    EXPECT_EQ(sent, kTotal) << "生产者没有把数据发完";
+    EXPECT_GE(hwmCalls, 1u) << "水位回调没有被触发";
+    EXPECT_GE(hwmSize, kHighWaterMark) << "回调参数应 >= 水位";
+    EXPECT_GE(peak, kHighWaterMark) << "缓冲从未涨到水位，场景没构造出来";
+    // 真正的上界：生产者在水位以下才追加，ago 最多再加一个块
+    EXPECT_LT(peak, kHighWaterMark + kChunk) << "峰值超过 水位 + 一个块，背压没生效";
+    EXPECT_EQ(received.load(), kTotal) << "慢消费者最终没有收全";
 
     tearDown(&loop, conn);
     conn.reset();
