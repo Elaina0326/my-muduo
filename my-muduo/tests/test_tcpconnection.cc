@@ -168,3 +168,86 @@ TEST(TcpConnectionTest, SendFileThenSendFlushesBufferedData)
     conn.reset();
     ::close(fds[1]);
 }
+
+// ---------------------------------------------------------------------------
+// ③ 高水位回调：只在"跨过水位"的那一次触发，缓冲仍高时不重复触发
+//
+// T4 的回归测试。要点是让"跨水位"发生在 sendMulti 的慢路径上
+// （channel 已经在写 / outputBuffer_ 已有数据）—— 修复前那条路径
+// 根本没有 notifyHighWaterMark()，缓冲堆到上限回调也不来。
+// ---------------------------------------------------------------------------
+TEST(TcpConnectionTest, HighWaterMarkFiresOnceWhenCrossed)
+{
+    using namespace muduo::net;
+
+    int fds[2];
+    ASSERT_EQ(0, ::socketpair(AF_UNIX, SOCK_STREAM, 0, fds));
+
+    // 两端都压小，并且先把内核发送缓冲灌满：
+    // 之后 TcpConnection 的 writev 必然 EAGAIN，数据只能进 outputBuffer_，
+    // 下一次 sendMulti 就会走慢路径。
+    int bufSize = 1024;
+    ASSERT_EQ(0, ::setsockopt(fds[0], SOL_SOCKET, SO_SNDBUF, &bufSize, sizeof(bufSize)));
+    ASSERT_EQ(0, ::setsockopt(fds[1], SOL_SOCKET, SO_RCVBUF, &bufSize, sizeof(bufSize)));
+
+    int flags = ::fcntl(fds[0], F_GETFL, 0);
+    ASSERT_GE(flags, 0);
+    ASSERT_EQ(0, ::fcntl(fds[0], F_SETFL, flags | O_NONBLOCK));
+
+    const std::string filler(1024, 'f');
+    for (;;)
+    {
+        const ssize_t n = ::write(fds[0], filler.data(), filler.size());
+        if (n <= 0)
+        {
+            break; // EAGAIN：发送缓冲已满
+        }
+    }
+
+    EventLoop loop;
+    auto conn = makeConnection(&loop, fds[0]);
+
+    std::atomic<int> calls{0};
+    std::atomic<size_t> lastSize{0};
+    conn->setHighWaterMarkCallback(
+        [&calls, &lastSize](const TcpConnectionPtr &, size_t size)
+        {
+            ++calls;
+            lastSize = size;
+        },
+        1024);
+
+    // ① 1 字节：低于水位，不触发；但会让 channel 进入 writing 状态
+    conn->sendMulti({std::string(1, 'a')});
+
+    const std::vector<std::string> big{std::string(8192, 'a'), std::string(8192, 'b')};
+
+    // ② 8 KB × 2：慢路径追加，跨过水位 → 恰好触发一次
+    loop.runAfter(0.05, [&]
+                  { conn->sendMulti(big); });
+
+    // 快照：此时回调应已执行（queueInLoop 投递的 functor 在上一轮 doPendingFunctors 跑过）
+    int callsAfterCrossing = 0;
+    size_t sizeAfterCrossing = 0;
+    loop.runAfter(0.20, [&]
+                  {
+        callsAfterCrossing = calls.load();
+        sizeAfterCrossing = lastSize.load(); });
+
+    // ③ 缓冲仍高于水位：再发一批，不应重复触发
+    loop.runAfter(0.30, [&]
+                  { conn->sendMulti(big); });
+
+    loop.runAfter(0.40, [&]
+                  { loop.quit(); });
+
+    loop.loop();
+
+    EXPECT_EQ(callsAfterCrossing, 1) << "跨过水位时应恰好触发一次（慢路径也不能漏）";
+    EXPECT_GE(sizeAfterCrossing, 1024u) << "回调参数应 >= 水位";
+    EXPECT_EQ(calls.load(), 1) << "缓冲仍高于水位时不应重复触发";
+
+    tearDown(&loop, conn);
+    conn.reset();
+    ::close(fds[1]);
+}
